@@ -51,6 +51,7 @@ static volatile uint32_t s_wave_front_address;
 static volatile uint32_t s_wave_back_address;
 static volatile bool s_wave_swap_pending;
 static bool s_wave_layer_visible;
+static bool s_wave_layer_masked;           /**< Layer0弹窗期间临时隐藏硬件Layer2。 */
 static bool s_wave_layer_ready;
 static bsp_ltdc_frame_callback_t s_frame_callback;
 static void *s_frame_callback_context;
@@ -247,6 +248,7 @@ bsp_ltdc_status_t bsp_ltdc_lcd_init(const bsp_ltdc_config_t *config)
     s_wave_back_address = 0U;
     s_wave_swap_pending = false;
     s_wave_layer_visible = false;
+    s_wave_layer_masked = false;
     s_wave_layer_ready = false;
     s_ready = true;
     HAL_GPIO_WritePin(GPIOB, GPIO_PIN_5, GPIO_PIN_SET);
@@ -516,7 +518,37 @@ bool bsp_ltdc_lcd_wave_layer_init(uint16_t x, uint16_t y,
     s_wave_swap_pending = false;
     s_wave_present_count = 0U;
     s_wave_layer_visible = false;
+    s_wave_layer_masked = false;
     s_wave_layer_ready = true;
+    return true;
+}
+
+/**
+ * @brief 在垂直消隐期设置波形硬件层的可见性。
+ * @details 波形缓冲映射在LTDC硬件Layer2，处于整屏LVGL Layer1之上。协议
+ *          设置窗属于LVGL层，打开时必须将Layer2常量Alpha置零，才能让Layer0
+ *          的黑色清屏层和控件真正覆盖波形。函数不修改波形缓冲地址和内容。
+ * @param visible true恢复波形层；false临时隐藏波形层。
+ * @retval true已提交VBlank重载请求；false表示LTDC层未初始化或HAL失败。
+ */
+bool bsp_ltdc_lcd_wave_layer_set_visible(bool visible)
+{
+    bool previous_masked;
+    uint32_t primask;
+
+    if(!s_wave_layer_ready) return false;
+
+    primask = __get_PRIMASK();
+    __disable_irq();
+    previous_masked = s_wave_layer_masked;
+    s_wave_layer_masked = !visible;
+    if(HAL_LTDC_SetAlpha_NoReload(&g_ltdc_handle, visible ? 255U : 0U, 1U) != HAL_OK ||
+       HAL_LTDC_Reload(&g_ltdc_handle, LTDC_RELOAD_VERTICAL_BLANKING) != HAL_OK) {
+        s_wave_layer_masked = previous_masked;
+        if(primask == 0U) __enable_irq();
+        return false;
+    }
+    if(primask == 0U) __enable_irq();
     return true;
 }
 
@@ -580,7 +612,7 @@ bool bsp_ltdc_lcd_wave_layer_present(void)
         }
         return false;
     }
-    if(!s_wave_layer_visible &&
+    if(!s_wave_layer_visible && !s_wave_layer_masked &&
        HAL_LTDC_SetAlpha_NoReload(&g_ltdc_handle, 255U, 1U) != HAL_OK) {
         if(primask == 0U) {
             __enable_irq();

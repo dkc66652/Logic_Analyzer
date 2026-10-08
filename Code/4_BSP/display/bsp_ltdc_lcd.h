@@ -145,6 +145,12 @@ uint16_t bsp_ltdc_lcd_wave_layer_get_height(void);
 uint16_t bsp_ltdc_lcd_wave_layer_get_stride(void);
 
 /**
+ * @brief 在垂直消隐期临时显示或隐藏波形硬件层。
+ * @note false只修改Layer2 Alpha，不清空波形SDRAM；true可立即恢复原波形。
+ */
+bool bsp_ltdc_lcd_wave_layer_set_visible(bool visible);
+
+/**
  * @brief 请求在下一个垂直消隐期显示当前后缓冲。
  * @return true 表示已经提交一次交换请求；false 表示 Layer 未初始化或上一帧尚未切换。
  */

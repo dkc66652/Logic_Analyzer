@@ -11,6 +11,7 @@
 
 #include "layer0_right_pages.h"
 
+#include "bsp_ltdc_lcd.h"
 #include "layer1_wave.h"
 #include "log_service.h"
 #include "resource_font.h"
@@ -247,6 +248,11 @@ static void protocol_dialog_prepare_clear(protocol_kind_t kind)
     if(kind >= PROTOCOL_KIND_COUNT || lv_display_get_default() == NULL) return;
     protocol_dialog_close();
 
+    /* 波形硬件层位于LVGL Layer0上方；先在VBlank隐藏它才能完成真正清屏。 */
+    if(!bsp_ltdc_lcd_wave_layer_set_visible(false)) {
+        (void)log_printf("ui: protocol wave layer hide failed\r\n");
+    }
+
     display = lv_display_get_default();
     height = lv_display_get_vertical_resolution(display);
     if(height <= 0) return;
@@ -435,6 +441,10 @@ static void protocol_dialog_confirm_event_cb(lv_event_t *event)
 /** @brief 删除覆盖对象并失效活动屏幕，确保Layer0不保留旧窗口像素。 */
 static void protocol_dialog_close(void)
 {
+    const bool had_overlay = (s_dialog.root != NULL) ||
+                             (s_dialog.clear_root != NULL) ||
+                             (s_dialog.open_timer != NULL);
+
     if(s_dialog.open_timer != NULL) {
         lv_timer_delete(s_dialog.open_timer);
         s_dialog.open_timer = NULL;
@@ -448,6 +458,9 @@ static void protocol_dialog_close(void)
     if(s_dialog.clear_root != NULL) {
         lv_obj_delete_async(s_dialog.clear_root);
         s_dialog.clear_root = NULL;
+    }
+    if(had_overlay && !bsp_ltdc_lcd_wave_layer_set_visible(true)) {
+        (void)log_printf("ui: protocol wave layer restore failed\r\n");
     }
     lv_obj_invalidate(lv_screen_active());
 }
