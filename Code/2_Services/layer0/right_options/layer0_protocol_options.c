@@ -14,7 +14,6 @@
 #include "bsp_ltdc_lcd.h"
 #include "layer1_wave.h"
 #include "log_service.h"
-#include "resource_font.h"
 
 #include <stdint.h>
 
@@ -88,20 +87,20 @@ void gui_page_protocol_decode_create(lv_obj_t *page_parent)
     lv_obj_set_style_bg_color(page, lv_color_hex(PROTOCOL_PANEL_COLOR), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(page, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_scrollable(page, false);
-    lv_obj_set_style_text_font(page, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+    lv_obj_set_style_text_font(page, LV_FONT_DEFAULT, LV_PART_MAIN);
 
     title = lv_label_create(page);
     if(title != NULL) {
-        lv_label_set_text(title, "协议解码");
+        lv_label_set_text(title, "Protocol Decode");
         lv_obj_set_pos(title, 8, 16);
-        lv_obj_set_style_text_font(title, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+        lv_obj_set_style_text_font(title, LV_FONT_DEFAULT, LV_PART_MAIN);
         lv_obj_set_style_text_color(title, lv_color_hex(PROTOCOL_PAGE_TITLE_COLOR), LV_PART_MAIN);
     }
     subtitle = lv_label_create(page);
     if(subtitle != NULL) {
-        lv_label_set_text(subtitle, "协议");
+        lv_label_set_text(subtitle, "Protocol");
         lv_obj_set_pos(subtitle, 8, 53);
-        lv_obj_set_style_text_font(subtitle, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+        lv_obj_set_style_text_font(subtitle, LV_FONT_DEFAULT, LV_PART_MAIN);
         lv_obj_set_style_text_color(subtitle, lv_color_hex(PROTOCOL_TEXT_COLOR), LV_PART_MAIN);
     }
 
@@ -126,7 +125,7 @@ void gui_page_protocol_decode_create(lv_obj_t *page_parent)
         label = lv_label_create(button);
         if(label != NULL) {
             lv_label_set_text(label, names[index]);
-            lv_obj_set_style_text_font(label, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+            lv_obj_set_style_text_font(label, LV_FONT_DEFAULT, LV_PART_MAIN);
             lv_obj_set_style_text_color(label, lv_color_hex(PROTOCOL_MUTED_COLOR), LV_PART_MAIN);
             lv_obj_center(label);
         }
@@ -151,11 +150,15 @@ static lv_obj_t *protocol_dialog_dropdown(lv_obj_t *parent, int32_t y,
     lv_obj_set_size(dropdown, PROTOCOL_DIALOG_VALUE_WIDTH, 31);
     lv_dropdown_set_options_static(dropdown, options);
     lv_dropdown_set_selected(dropdown, selected);
+    lv_dropdown_set_symbol(dropdown, LV_SYMBOL_DOWN);
     lv_obj_set_style_bg_color(dropdown, lv_color_hex(PROTOCOL_INPUT_COLOR), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(dropdown, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_style_border_width(dropdown, 0, LV_PART_MAIN);
     lv_obj_set_style_text_color(dropdown, lv_color_hex(PROTOCOL_TEXT_COLOR), LV_PART_MAIN);
-    lv_obj_set_style_text_font(dropdown, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+    lv_obj_set_style_text_font(dropdown, LV_FONT_DEFAULT, LV_PART_MAIN);
+    /* 下拉箭头由INDICATOR绘制，必须使用包含LV_SYMBOL_DOWN的默认图标字体。 */
+    lv_obj_set_style_text_font(dropdown, LV_FONT_DEFAULT, LV_PART_INDICATOR);
+    lv_obj_set_style_text_color(dropdown, lv_color_hex(PROTOCOL_TEXT_COLOR), LV_PART_INDICATOR);
     return dropdown;
 }
 
@@ -170,7 +173,7 @@ static void protocol_dialog_row(lv_obj_t *parent, const char *name, int32_t y,
         lv_obj_set_pos(label, PROTOCOL_DIALOG_PADDING, y + 6);
         lv_obj_set_width(label, WAVE_AREA_WIDTH - PROTOCOL_DIALOG_VALUE_WIDTH - 42);
         lv_label_set_long_mode(label, LV_LABEL_LONG_CLIP);
-        lv_obj_set_style_text_font(label, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+        lv_obj_set_style_text_font(label, LV_FONT_DEFAULT, LV_PART_MAIN);
         lv_obj_set_style_text_color(label, lv_color_hex(PROTOCOL_TEXT_COLOR), LV_PART_MAIN);
     }
     (void)protocol_dialog_dropdown(parent, y, options, selected);
@@ -183,17 +186,17 @@ static void protocol_dialog_build_uart(lv_obj_t *parent, int32_t first_y)
                         "D1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
     protocol_dialog_row(parent, "TX (UART transmit line)", first_y + 1 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "D1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 1U);
-    protocol_dialog_row(parent, "Baud rate (波特率)", first_y + 2 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Baud rate", first_y + 2 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "9600\n19200\n38400\n57600\n115200\n1000000", 4U);
-    protocol_dialog_row(parent, "Data bits (数据位数)", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Data bits", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "5\n6\n7\n8\n9", 3U);
-    protocol_dialog_row(parent, "Parity (校验位)", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Parity", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "none\neven\nodd", 0U);
-    protocol_dialog_row(parent, "Stop bits (停止位)", first_y + 5 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Stop bits", first_y + 5 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "1.0\n1.5\n2.0", 0U);
-    protocol_dialog_row(parent, "Bit order (位序)", first_y + 6 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Bit order", first_y + 6 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "lsb-first\nmsb-first", 0U);
-    protocol_dialog_row(parent, "Data format (数据格式)", first_y + 7 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Data format", first_y + 7 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "hex\ndec\nbin\nascii", 0U);
 }
 
@@ -206,32 +209,32 @@ static void protocol_dialog_build_i2c(lv_obj_t *parent, int32_t first_y)
                         "-\nD1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
     protocol_dialog_row(parent, "Slave address format", first_y + 2 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "shifted\nunshifted", 0U);
-    protocol_dialog_row(parent, "Display packets (数据格式)", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Display packets", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "hex\ndec\nbin", 0U);
-    protocol_dialog_row(parent, "Show data point (数据点显示)", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Show data point", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "yes\nno", 0U);
 }
 
 /** @brief 创建SPI设置字段。 */
 static void protocol_dialog_build_spi(lv_obj_t *parent, int32_t first_y)
 {
-    protocol_dialog_row(parent, "CLK (Clock串行时钟) *", first_y + 0 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "CLK (Clock) *", first_y + 0 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "-\nD1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
     protocol_dialog_row(parent, "MISO (Master in, slave out)", first_y + 1 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "-\nD1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
     protocol_dialog_row(parent, "MOSI (Master out, slave in)", first_y + 2 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "-\nD1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
-    protocol_dialog_row(parent, "CS# (Chip-select片选信号)", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "CS# (Chip select)", first_y + 3 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "-\nD1: Channel 1\nD2: Channel 2\nD3: Channel 3\nD4: Channel 4\nD5: Channel 5\nD6: Channel 6", 0U);
-    protocol_dialog_row(parent, "CS# polarity (片选极性)", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "CS# polarity", first_y + 4 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "active-low\nactive-high", 0U);
-    protocol_dialog_row(parent, "Clock polarity (时钟极性)", first_y + 5 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Clock polarity", first_y + 5 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "0\n1", 0U);
-    protocol_dialog_row(parent, "Clock phase (时钟相位)", first_y + 6 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Clock phase", first_y + 6 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "0\n1", 0U);
-    protocol_dialog_row(parent, "Bit order (位序)", first_y + 7 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Bit order", first_y + 7 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "msb-first\nlsb-first", 0U);
-    protocol_dialog_row(parent, "Word size (字长)", first_y + 8 * PROTOCOL_DIALOG_ROW_HEIGHT,
+    protocol_dialog_row(parent, "Word size", first_y + 8 * PROTOCOL_DIALOG_ROW_HEIGHT,
                         "4\n5\n6\n7\n8\n9\n10\n11\n12\n13\n14\n15\n16", 4U);
 }
 
@@ -292,7 +295,7 @@ static void protocol_dialog_open_timer_cb(lv_timer_t *timer)
 static void protocol_dialog_open(protocol_kind_t kind)
 {
     static const char * const titles[PROTOCOL_KIND_COUNT] = {
-        "协议设置(UART)", "协议设置(I2C)", "协议设置(SPI)"
+        "Protocol Setup (UART)", "Protocol Setup (I2C)", "Protocol Setup (SPI)"
     };
     lv_obj_t *header;
     lv_obj_t *title;
@@ -327,7 +330,7 @@ static void protocol_dialog_open(protocol_kind_t kind)
     lv_obj_set_style_bg_color(s_dialog.root, lv_color_hex(PROTOCOL_PANEL_COLOR), LV_PART_MAIN);
     lv_obj_set_style_bg_opa(s_dialog.root, LV_OPA_COVER, LV_PART_MAIN);
     lv_obj_set_scrollable(s_dialog.root, false);
-    lv_obj_set_style_text_font(s_dialog.root, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+    lv_obj_set_style_text_font(s_dialog.root, LV_FONT_DEFAULT, LV_PART_MAIN);
     lv_obj_move_foreground(s_dialog.root);
 
     header = lv_obj_create(s_dialog.root);
@@ -343,7 +346,7 @@ static void protocol_dialog_open(protocol_kind_t kind)
     if(title != NULL) {
         lv_label_set_text(title, titles[kind]);
         lv_obj_set_pos(title, PROTOCOL_DIALOG_PADDING, 14);
-        lv_obj_set_style_text_font(title, APP_FONT_CN_14_PTR, LV_PART_MAIN);
+        lv_obj_set_style_text_font(title, LV_FONT_DEFAULT, LV_PART_MAIN);
         lv_obj_set_style_text_color(title, lv_color_hex(PROTOCOL_TEXT_COLOR), LV_PART_MAIN);
     }
 
@@ -404,7 +407,7 @@ static void protocol_dialog_open(protocol_kind_t kind)
         lv_obj_set_style_shadow_width(cancel_button, 0, LV_PART_MAIN);
         lv_obj_add_event_cb(cancel_button, protocol_dialog_close_event_cb, LV_EVENT_CLICKED, NULL);
         label = lv_label_create(cancel_button);
-        if(label != NULL) { lv_label_set_text(label, "取消"); lv_obj_center(label); }
+        if(label != NULL) { lv_label_set_text(label, "Cancel"); lv_obj_center(label); }
     }
     confirm_button = lv_button_create(footer);
     if(confirm_button != NULL) {
@@ -416,7 +419,7 @@ static void protocol_dialog_open(protocol_kind_t kind)
         lv_obj_set_style_shadow_width(confirm_button, 0, LV_PART_MAIN);
         lv_obj_add_event_cb(confirm_button, protocol_dialog_confirm_event_cb, LV_EVENT_CLICKED, NULL);
         label = lv_label_create(confirm_button);
-        if(label != NULL) { lv_label_set_text(label, "确定"); lv_obj_center(label); }
+        if(label != NULL) { lv_label_set_text(label, "OK"); lv_obj_center(label); }
     }
 }
 
