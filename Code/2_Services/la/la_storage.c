@@ -81,8 +81,8 @@ void LA_Storage_Reset(void)
 }
 
 /**
- * @brief 为通道预留一段可由MDMA直接写入的连续空间
- * @note 预留不会增加有效记录数，必须在MDMA完成后调用Commit
+ * @brief 为通道预留一段可由CPU同步写入的连续空间
+ * @note 预留不会增加有效记录数，必须在CPU复制完成并校验后调用Commit
  * @param channel 通道编号
  * @param count 需要预留的记录数量，不得跨越物理块边界
  * @param destination 返回SDRAM写入地址
@@ -139,7 +139,7 @@ LA_Storage_Result_t LA_Storage_Reserve(uint8_t channel,
 }
 
 /**
- * @brief 提交已经由MDMA写入完成的通道记录
+ * @brief 提交已经由CPU写入完成的通道记录
  * @note 只能提交最近一次Reserve返回的连续空间
  * @param channel 通道编号
  * @param count 已完成写入的记录数量

@@ -63,7 +63,6 @@ extern TIM_HandleTypeDef htim7;
 extern TIM_HandleTypeDef htim6;
 
 #if PLATFORM_LA_CAPTURE_ENABLE
-extern MDMA_HandleTypeDef hmdma_mdma_channel0_sw_0;
 extern DMA_HandleTypeDef hdma_tim2_ch1;
 extern DMA_HandleTypeDef hdma_tim2_ch3;
 extern DMA_HandleTypeDef hdma_tim2_ch4;
@@ -183,7 +182,6 @@ void DMA1_Stream3_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_tim5_ch1); }
 void DMA1_Stream4_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_tim5_ch3); }
 void DMA1_Stream5_IRQHandler(void) { HAL_DMA_IRQHandler(&hdma_tim5_ch4); }
 void TIM2_IRQHandler(void) { HAL_TIM_IRQHandler(&htim2); }
-void MDMA_IRQHandler(void) { HAL_MDMA_IRQHandler(&hmdma_mdma_channel0_sw_0); }
 #endif
 
 /**

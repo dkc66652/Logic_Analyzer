@@ -152,7 +152,7 @@ static void LA_Service_Request_Stop(LA_Service_Stop_Reason_t reason)
         ((la_service_stop_reason == LA_SERVICE_STOP_DEADLINE) ||
          (la_service_stop_reason == LA_SERVICE_STOP_USER)))
     {
-        /* 截止IRQ可能在MDMA等待期间到达，不能把之后的失败丢掉或重试。 */
+        /* 截止IRQ可能在CPU复制期间到达，不能把之后的失败丢掉或重试。 */
         la_service_stop_reason = reason;
     }
     taskEXIT_CRITICAL();
@@ -160,7 +160,7 @@ static void LA_Service_Request_Stop(LA_Service_Stop_Reason_t reason)
 
 /**
  * @brief 搬运一个DMA半缓冲区
- * @note 待处理位在MDMA完成并提交后才清除，用于检测DMA覆盖
+ * @note 待处理位在CPU复制完成并提交后才清除，用于检测DMA覆盖
  * @param channel 通道编号
  * @param half DMA半区编号，0表示前半区，1表示后半区
  * @retval LA_SERVICE_OK-成功
@@ -1035,7 +1035,7 @@ static uint8_t LA_Service_Import_Is_Valid(const LA_Service_Import_t *import)
 }
 
 /**
- * @brief 开始独占导入，确认BSP和MDMA已停稳后再允许CPU写入SDRAM
+ * @brief 开始独占导入，确认BSP采集硬件已停稳后再允许CPU写入SDRAM
  */
 LA_Service_Result_t LA_Service_Import_Begin(
                                         LA_Service_Import_t *import,
@@ -1320,4 +1320,3 @@ LA_Service_Result_t LA_Service_Import_Abort(LA_Service_Import_t *import)
     (void)xSemaphoreGive(la_service_shared.storage_mutex);
     return LA_SERVICE_OK;
 }
-

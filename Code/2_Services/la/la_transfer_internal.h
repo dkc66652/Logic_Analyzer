@@ -1,7 +1,7 @@
 /**
  * @file la_transfer_internal.h
  * @brief 逻辑分析仪采集数据存储搬运适配私有接口
- * @note 仅由采集服务调用，隐藏FMC、MDMA及传输回调细节
+ * @note 仅由采集服务调用，隐藏CPU到SDRAM的同步复制细节
  */
 
 #ifndef LA_TRANSFER_INTERNAL_H
@@ -21,7 +21,7 @@ typedef LA_Service_Result_t (*LA_Transfer_Commit_Callback_t)(
 
 /**
  * @brief 初始化存储搬运适配
- * @param task_handle 唯一搬运任务，须与Append调用任务一致且保持有效
+ * @param task_handle 保留的服务任务句柄参数；CPU复制不使用任务通知
  */
 void LA_Transfer_Init(TaskHandle_t task_handle);
 
@@ -30,14 +30,14 @@ void LA_Transfer_Init(TaskHandle_t task_handle);
  * @note 仅在采集尚未开始或已完全收尾、没有传输在途时调用
  */
 void LA_Transfer_Reset(void);
-/* Reset前确认没有MDMA继续写入旧存储；失败时不得清空或重用数据区。 */
+/* CPU复制同步完成，Abort确认没有异步写入旧存储。 */
 LA_Service_Result_t LA_Transfer_Abort(void);
 
 /**
  * @brief 追加截止计数值之前的采集数据
  * @note 调用者须持有存储互斥锁，保持源缓冲有效直到返回。
- *       内部预留空间、等待异步搬运完成后提交；等待使用当前任务通知，
- *       允许采集事件同时唤醒，累计等待不超过100ms，超时会终止MDMA。
+ *       内部预留空间、同步CPU复制、校验后提交；复制期间采集ISR仍可标记
+ *       半区污染，提交回调会拒绝被DMA复用过的源数据。
  * @param channel 通道编号
  * @param data DMA时间戳源地址
  * @param count 时间戳数量

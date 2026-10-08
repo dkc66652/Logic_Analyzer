@@ -7,7 +7,6 @@
 #if PLATFORM_LA_CAPTURE_ENABLE
 #include "dma.h"
 #include "la/la_ic.h"
-#include "mdma.h"
 #endif
 #include "gpio.h"
 #include "tim.h"
@@ -21,7 +20,6 @@ bool BSP_Init(void)
     MX_GPIO_Init();
 #if PLATFORM_LA_CAPTURE_ENABLE
     MX_DMA_Init();
-    MX_MDMA_Init();
 #endif
     MX_TIM7_Init();
 #if PLATFORM_LA_CAPTURE_ENABLE
