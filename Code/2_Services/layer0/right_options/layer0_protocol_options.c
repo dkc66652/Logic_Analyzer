@@ -42,8 +42,10 @@ typedef enum
 
 typedef struct
 {
+    lv_obj_t *clear_root;       /* 先于对话框显示的Layer0不透明黑色清屏层 */
     lv_obj_t *root;             /* 覆盖波形区的Layer0对话框根对象 */
     lv_obj_t *enabled_switch;   /* 当前协议的启用开关 */
+    lv_timer_t *open_timer;     /* 清屏帧完成后创建设置窗的一次性定时器 */
     protocol_kind_t kind;       /* 当前正在编辑的协议 */
 } protocol_dialog_t;
 
@@ -53,6 +55,8 @@ static void protocol_page_button_event_cb(lv_event_t *event);
 static void protocol_dialog_close_event_cb(lv_event_t *event);
 static void protocol_dialog_confirm_event_cb(lv_event_t *event);
 static void protocol_dialog_open(protocol_kind_t kind);
+static void protocol_dialog_prepare_clear(protocol_kind_t kind);
+static void protocol_dialog_open_timer_cb(lv_timer_t *timer);
 static void protocol_dialog_close(void);
 static void protocol_dialog_build_uart(lv_obj_t *parent, int32_t first_y);
 static void protocol_dialog_build_i2c(lv_obj_t *parent, int32_t first_y);
@@ -131,7 +135,7 @@ void gui_page_protocol_decode_create(lv_obj_t *page_parent)
 /** @brief 响应右侧协议入口按钮，打开覆盖波形区的设置窗口。 */
 static void protocol_page_button_event_cb(lv_event_t *event)
 {
-    protocol_dialog_open((protocol_kind_t)(uintptr_t)lv_event_get_user_data(event));
+    protocol_dialog_prepare_clear((protocol_kind_t)(uintptr_t)lv_event_get_user_data(event));
 }
 
 /** @brief 创建下拉选择控件并设置统一的深色外观。 */
@@ -231,6 +235,50 @@ static void protocol_dialog_build_spi(lv_obj_t *parent, int32_t first_y)
 }
 
 /**
+ * @brief 先用Layer0黑色块清除波形区，再延后一帧创建协议窗口。
+ * @details 清屏层与设置窗分两次LVGL调度创建。这样点击协议时，旧波形和
+ *          Layer0控件会先从100~599区域消失；设置窗不会与旧画面混合出现。
+ */
+static void protocol_dialog_prepare_clear(protocol_kind_t kind)
+{
+    lv_display_t *display;
+    int32_t height;
+
+    if(kind >= PROTOCOL_KIND_COUNT || lv_display_get_default() == NULL) return;
+    protocol_dialog_close();
+
+    display = lv_display_get_default();
+    height = lv_display_get_vertical_resolution(display);
+    if(height <= 0) return;
+
+    s_dialog.clear_root = lv_obj_create(lv_screen_active());
+    if(s_dialog.clear_root == NULL) return;
+    lv_obj_remove_style_all(s_dialog.clear_root);
+    lv_obj_set_pos(s_dialog.clear_root, WAVE_AREA_X, 0);
+    lv_obj_set_size(s_dialog.clear_root, WAVE_AREA_WIDTH, height);
+    lv_obj_set_style_bg_color(s_dialog.clear_root, lv_color_hex(0x000000U), LV_PART_MAIN);
+    lv_obj_set_style_bg_opa(s_dialog.clear_root, LV_OPA_COVER, LV_PART_MAIN);
+    lv_obj_set_scrollable(s_dialog.clear_root, false);
+    lv_obj_move_foreground(s_dialog.clear_root);
+    lv_obj_invalidate(s_dialog.clear_root);
+
+    /* 给下一次LVGL刷新留出一个完整的黑色清屏帧。 */
+    s_dialog.open_timer = lv_timer_create(protocol_dialog_open_timer_cb, 20U,
+                                          (void *)(uintptr_t)kind);
+    if(s_dialog.open_timer != NULL) lv_timer_set_repeat_count(s_dialog.open_timer, 1);
+}
+
+/** @brief 清屏帧显示后，创建对应协议的设置窗口。 */
+static void protocol_dialog_open_timer_cb(lv_timer_t *timer)
+{
+    const protocol_kind_t kind = (protocol_kind_t)(uintptr_t)lv_timer_get_user_data(timer);
+
+    s_dialog.open_timer = NULL;
+    lv_timer_delete(timer);
+    protocol_dialog_open(kind);
+}
+
+/**
  * @brief 打开一个协议设置弹窗。
  * @note 根对象只覆盖100~599波形区域。关闭时删除根对象，Layer0失效区域会重绘
  *       为原背景，Layer1的上一帧波形无需重算即可重新显示。
@@ -254,7 +302,11 @@ static void protocol_dialog_open(protocol_kind_t kind)
     int32_t first_y;
 
     if(kind >= PROTOCOL_KIND_COUNT || lv_display_get_default() == NULL) return;
-    protocol_dialog_close();
+    if(s_dialog.root != NULL) {
+        lv_obj_delete_async(s_dialog.root);
+        s_dialog.root = NULL;
+        s_dialog.enabled_switch = NULL;
+    }
 
     display = lv_display_get_default();
     height = lv_display_get_vertical_resolution(display);
@@ -383,11 +435,19 @@ static void protocol_dialog_confirm_event_cb(lv_event_t *event)
 /** @brief 删除覆盖对象并失效活动屏幕，确保Layer0不保留旧窗口像素。 */
 static void protocol_dialog_close(void)
 {
+    if(s_dialog.open_timer != NULL) {
+        lv_timer_delete(s_dialog.open_timer);
+        s_dialog.open_timer = NULL;
+    }
     if(s_dialog.root != NULL) {
         /* 关闭按钮是根对象的子对象；异步删除避免在当前点击事件栈中释放祖先。 */
         lv_obj_delete_async(s_dialog.root);
         s_dialog.root = NULL;
         s_dialog.enabled_switch = NULL;
-        lv_obj_invalidate(lv_screen_active());
     }
+    if(s_dialog.clear_root != NULL) {
+        lv_obj_delete_async(s_dialog.clear_root);
+        s_dialog.clear_root = NULL;
+    }
+    lv_obj_invalidate(lv_screen_active());
 }
