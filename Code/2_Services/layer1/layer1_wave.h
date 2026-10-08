@@ -20,7 +20,7 @@
  * 两种方式共用相同的26行横向条带、双缓冲和 VBlank 换帧流程。
  */
 #ifndef WAVE_TRANSFER_USE_DMA2D
-#define WAVE_TRANSFER_USE_DMA2D  0
+#define WAVE_TRANSFER_USE_DMA2D  1
 #endif
 
 /*

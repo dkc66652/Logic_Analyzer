@@ -35,7 +35,7 @@
 #define WAVE_DMA_TASK_STACK                384U
 #define WAVE_DMA_TASK_PRIORITY               2U
 /* 两块固定容量的片内RGB565条带：准备任务与DMA发送任务交替持有。 */
-#define WAVE_DMA_BUFFER_COUNT                2U
+#define WAVE_DMA_BUFFER_COUNT                1U
 #define WAVE_DMA_TILE_LINES                 26U
 #define WAVE_DMA_NO_BUFFER                0xFFU
 #define WAVE_DMA_CACHE_LINE_BYTES            32U
