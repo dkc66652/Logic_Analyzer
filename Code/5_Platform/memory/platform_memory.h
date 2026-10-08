@@ -7,7 +7,7 @@
 void platform_sdram_mpu_config(uint32_t base_address);
 
 /**
- * @brief 将 D2 SRAM1 前 32 KiB 配置为 DMA 使用的不可缓存普通内存。
+ * @brief 将 D2 SRAM1 前 128 KiB 配置为 DMA 使用的不可缓存普通内存。
  * @note 与 STM32H743II.sct 的 RW_DMA_NOCACHE 区域一致，需在 DMA 使用前调用。
  */
 void platform_dma_nocache_mpu_config(void);

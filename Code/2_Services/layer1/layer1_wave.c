@@ -11,6 +11,7 @@
 #include "layer1_wave.h"
 #include "layer0_left_channels.h"
 #include "layer1_capture_data.h"
+#include "memory_placement.h"
 #include "bsp_dma2d.h"
 #include "bsp_ltdc_lcd.h"
 #include "layer1_frame_test.h"
@@ -252,7 +253,8 @@ static uint16_t s_task_columns[WAVE_CAPTURE_DATA_COLUMN_COUNT];
  * 两块512×26像素横向条带供准备任务与DMA任务乒乓使用。共享uint16_t
  * 列数组的每个元素同时携带六路2 bit状态，只在每帧查询一次。
  */
-__attribute__((aligned(WAVE_DMA_CACHE_LINE_BYTES)))
+/* DMA2D源条带放入D2 SRAM1非缓存区，避免CPU D-Cache与DMA读取同一条带竞争。 */
+PLATFORM_DMA_NOCACHE_ZI PLATFORM_CACHE_ALIGNMENT_ATTRIBUTE
 static uint16_t s_wave_dma_buffers[WAVE_DMA_BUFFER_COUNT]
                                   [WAVE_DMA_BUFFER_CAPACITY_PIXELS];
 static SemaphoreHandle_t s_wave_frame_semaphore;

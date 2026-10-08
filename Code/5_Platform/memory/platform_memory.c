@@ -14,7 +14,7 @@ void platform_dma_nocache_mpu_config(void)
     mpu.Enable = MPU_REGION_ENABLE;
     mpu.Number = MPU_REGION_NUMBER2;
     mpu.BaseAddress = 0x30000000U;
-    mpu.Size = MPU_REGION_SIZE_32KB;
+    mpu.Size = MPU_REGION_SIZE_128KB;
     mpu.SubRegionDisable = 0x00U;
     mpu.TypeExtField = MPU_TEX_LEVEL1;
     mpu.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;

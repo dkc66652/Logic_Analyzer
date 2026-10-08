@@ -75,7 +75,7 @@
 #define PLATFORM_AXI_SRAM_RW \
     PLATFORM_MEMORY_RW_ATTRIBUTE("AXI_SRAM_DATA")
 
-/* SRAM1 前 32KB：MPU 配置为 Non-cacheable，Scatter 配置为 UNINIT */
+/* SRAM1 前 80KB：MPU 配置为 Non-cacheable，Scatter 配置为 UNINIT */
 #define PLATFORM_DMA_NOCACHE_ZI \
     PLATFORM_MEMORY_ZI_ATTRIBUTE("DMA_NOCACHE")
 
