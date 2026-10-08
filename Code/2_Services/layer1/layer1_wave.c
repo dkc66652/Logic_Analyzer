@@ -920,6 +920,23 @@ static bool wave_queue_render_snapshot(uint16_t *pixels,
     if(valid_columns > WAVE_AREA_WIDTH) valid_columns = WAVE_AREA_WIDTH;
 
     /*
+     * 未开始采集时，真实采集服务会返回成功和0个有效列。这是一个正常的
+     * 查询结果，不是需要补黑的“空波形帧”。Layer 1 在初始化时本来就是
+     * 透明黑色；若这里仍为六路各提交一次26行DMA2D COPY，虽然源条带全
+     * 黑，却会把Layer 1提交为可见，并在没有任何采集数据前制造六笔无意义
+     * 的SDRAM写入。初始化阶段已经观察到的六条细线正是该路径必须排除的
+     * 对象。
+     *
+     * 配置更新后的清屏必须保留：它需要把上一轮已显示的轨道擦掉。因此只在
+     * 没有清屏需求时直接结束本帧，不申请条带缓冲、不启动DMA2D、不提交
+     * LTDC换帧。采集启动后，第一段有效CNT到来时valid_columns非零，正常
+     * 的六通道条带流程会自动恢复。
+     */
+    if(valid_columns == 0U && !snapshot->clear_background) {
+        return true;
+    }
+
+    /*
      * 通道布局改变时清空当前后缓冲。这里不能再用一次444行的DMA2D填充：
      * 即使普通波形按26行切片，该整块任务仍会连续占用SDRAM总线，足以让
      * 同时扫描Layer 0和Layer 1的LTDC发生FIFO欠载。后缓冲此刻不被LTDC
