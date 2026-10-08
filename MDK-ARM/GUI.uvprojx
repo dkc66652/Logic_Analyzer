@@ -2188,6 +2188,11 @@
               <FilePath>..\Middleware\Lvgl\src\widgets\button\lv_button.c</FilePath>
             </File>
             <File>
+              <FileName>lv_dropdown.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middleware\Lvgl\src\widgets\dropdown\lv_dropdown.c</FilePath>
+            </File>
+            <File>
               <FileName>lv_image.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Middleware\Lvgl\src\widgets\image\lv_image.c</FilePath>
@@ -2196,6 +2201,11 @@
               <FileName>lv_label.c</FileName>
               <FileType>1</FileType>
               <FilePath>..\Middleware\Lvgl\src\widgets\label\lv_label.c</FilePath>
+            </File>
+            <File>
+              <FileName>lv_switch.c</FileName>
+              <FileType>1</FileType>
+              <FilePath>..\Middleware\Lvgl\src\widgets\switch\lv_switch.c</FilePath>
             </File>
           </Files>
         </Group>

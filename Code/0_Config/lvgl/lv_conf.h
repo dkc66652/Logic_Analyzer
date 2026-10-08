@@ -215,7 +215,7 @@
 #define LV_USE_CANVAS                     0   /* 画布：在像素缓冲上自行画点、线、图形或图片。 */
 #define LV_USE_CHART                      0   /* 图表：绘制折线图、柱状图和散点图等数据曲线。 */
 #define LV_USE_CHECKBOX                   0   /* 复选框：显示选中/未选中状态和说明文字。 */
-#define LV_USE_DROPDOWN                   0   /* 下拉列表：点击后从多个选项中选择一个。 */
+#define LV_USE_DROPDOWN                   1   /* 下拉列表：协议设置选择通道和参数。 */
 #define LV_USE_IMAGE                      1   /* 图片：显示 C 数组、文件或符号形式的图片资源。 */
 #define LV_USE_IMAGEBUTTON                0   /* 图片按钮：用不同图片表示普通、按下等状态。 */
 #define LV_USE_KEYBOARD                   0   /* 屏幕键盘：通常与 Textarea 配合输入文字。 */
@@ -231,7 +231,7 @@
 #define LV_USE_SPAN                       0   /* 富文本：在同一段文字中使用不同字体和颜色。 */
 #define LV_USE_SPINBOX                    0   /* 数字输入框：逐位增加或减少数值。 */
 #define LV_USE_SPINNER                    0   /* 加载动画：持续旋转的圆弧，表示正在处理。 */
-#define LV_USE_SWITCH                     0   /* 开关：表示开/关两种状态。 */
+#define LV_USE_SWITCH                     1   /* 开关：协议设置的启用状态。 */
 #define LV_USE_TABLE                      0   /* 表格：按行列显示文本数据。 */
 #define LV_USE_TABVIEW                    0   /* 选项卡：通过标签页切换不同内容页面。 */
 #define LV_USE_TEXTAREA                   0   /* 文本输入框：支持光标、编辑和多行文字。 */
