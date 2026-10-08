@@ -19,7 +19,7 @@
  * 0：使用同事LA Service的真实六通道采集和固定视图查询。
  */
 #ifndef WAVE_CAPTURE_DATA_USE_CNT_DEMO
-#define WAVE_CAPTURE_DATA_USE_CNT_DEMO  1U
+#define WAVE_CAPTURE_DATA_USE_CNT_DEMO  0U
 #endif
 
 /** 初始化显示侧采集适配状态；LA Service必须已经初始化。 */

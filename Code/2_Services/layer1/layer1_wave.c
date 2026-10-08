@@ -2,8 +2,9 @@
  ******************************************************************************
  * @file    layer1_wave.c
  * @brief   六路数字波形的配置、采集数据管理和 Layer 1 像素绘制。
- * @details 帧中断只锁存时刻并释放信号量；准备任务生成RGB565条带，DMA任务
- *          异步写入SDRAM并提交双缓冲切换。LVGL只绘制静态UI和时间标尺。
+ * @details 帧中断只锁存时刻并释放信号量；准备任务一次查询六路共享列状态，
+ *          再为每路已开启通道生成26行RGB565条带并按顺序搬运到SDRAM。
+ *          LVGL只绘制静态UI和时间标尺。
  ******************************************************************************
  */
 
@@ -26,17 +27,15 @@
 #define WAVE_TIME_LABEL_SLOTS           12U
 #define WAVE_TIME_TICK_BASE_CNT         (WAVE_WINDOW_1S_CNT / 10U)
 #define WAVE_TIME_TICK_MIN_COUNT        5U
-#define WAVE_PACKED_COLUMN_COUNT         WAVE_AREA_WIDTH
 #define WAVE_SIMULATED_CHANNEL_INDEX     0U
 #define WAVE_MIN_WINDOW_CNT               5000U
 #define WAVE_PREPARE_TASK_STACK            768U
 #define WAVE_PREPARE_TASK_PRIORITY           1U
 #define WAVE_DMA_TASK_STACK                384U
 #define WAVE_DMA_TASK_PRIORITY               2U
-/* 两块512×74像素片内条带：准备任务与DMA发送任务交替持有。 */
+/* 两块固定容量的片内RGB565条带：准备任务与DMA发送任务交替持有。 */
 #define WAVE_DMA_BUFFER_COUNT                2U
 #define WAVE_DMA_TILE_LINES                 26U
-#define WAVE_DMA_TRANSFER_LINES     WAVE_DMA_TILE_LINES
 #define WAVE_DMA_NO_BUFFER                0xFFU
 #define WAVE_DMA_CACHE_LINE_BYTES            32U
 #define WAVE_DMA_TILE_STRIDE_PIXELS          512U
@@ -105,6 +104,7 @@ typedef struct
     bool follow_live;                        /* true 时采集中窗口自动跟随最新 CNT */
     bool view_dirty;                         /* 手势有新目标窗口，等待后缓冲可写 */
     bool render_requested;                  /* 下一次帧信号到来时重建 Layer 1 */
+    uint8_t clear_frames_remaining;          /* 配置改变后依次清理两块SDRAM缓冲 */
 
     /* 绘制任务执行完前，标签字符串必须一直有效。 */
     char time_labels[WAVE_TIME_LABEL_SLOTS][16];
@@ -123,6 +123,7 @@ typedef struct
 {
     wave_view_t view;
     wave_frame_channel_t channels[WAVE_CHANNEL_COUNT];
+    bool clear_background;
 } wave_frame_snapshot_t;
 
 typedef enum
@@ -144,6 +145,7 @@ typedef struct
     bool first_in_frame;
     bool last_in_frame;
     bool release_buffer;                /* 本子任务完成后才归还源条带缓冲 */
+    bool content_valid;                 /* false时完成搬运但不提交本帧 */
 } wave_dma_job_t;
 
 /*============================== 内部函数声明 ==============================*/
@@ -228,50 +230,27 @@ static bool wave_render_frame_at_tick(uint32_t frame_tick);
 static bool wave_make_frame_snapshot(uint32_t frame_tick,
                                      wave_frame_snapshot_t *snapshot);
 
-/** 使用一帧不可变快照生成通道条带，并送入DMA就绪队列。 */
+/** 一次查询六路列状态，再把已开启通道以26行横向条带送入DMA队列。 */
 static bool wave_queue_render_snapshot(uint16_t *pixels,
-                                       const wave_frame_snapshot_t *snapshot,
-                                       const uint16_t *columns,
-                                       uint32_t valid_columns,
-                                       uint8_t start_levels);
+                                       const wave_frame_snapshot_t *snapshot);
 
-/** 只绘制与当前水平条带相交的波形，避免为每个条带重新解析采集数据。 */
-static void wave_render_tile(uint16_t *tile_pixels,
-                             uint32_t tile_y,
-                             uint32_t tile_height,
-                             uint32_t tile_width,
-                             const wave_frame_snapshot_t *snapshot,
-                             const uint16_t *columns,
-                             uint32_t valid_columns,
-                             uint8_t start_levels);
-
-/** 向片内 RAM 条带写一条经过裁剪的水平线。 */
-static void wave_draw_tile_horizontal(uint16_t *tile_pixels,
-                                      uint32_t tile_y,
-                                      uint32_t tile_height,
-                                      uint32_t tile_width,
-                                      int32_t x1,
-                                      int32_t x2,
-                                      int32_t y,
-                                      uint16_t color);
-
-/** 向片内 RAM 条带写一条经过裁剪的竖直线。 */
-static void wave_draw_tile_vertical(uint16_t *tile_pixels,
-                                    uint32_t tile_y,
-                                    uint32_t tile_height,
-                                    uint32_t tile_width,
-                                    int32_t x,
-                                    int32_t y1,
-                                    int32_t y2,
-                                    uint16_t color);
+/** 把一路500列状态绘制到与该通道相交的26行RGB565条带。 */
+static void wave_render_channel_tile(uint16_t *tile_pixels,
+                                     uint32_t tile_y,
+                                     uint32_t tile_height,
+                                     uint32_t tile_width,
+                                     const wave_frame_channel_t *channel,
+                                     const uint16_t *columns,
+                                     uint32_t valid_columns,
+                                     uint8_t initial_levels);
 
 /*============================== 模块状态 ==============================*/
 
 static wave_context_t s_wave;
-static uint16_t s_task_columns[WAVE_PACKED_COLUMN_COUNT];
+static uint16_t s_task_columns[WAVE_CAPTURE_DATA_COLUMN_COUNT];
 /*
- * 源条带和SDRAM帧缓冲统一使用512像素物理行宽。DMA2D每行连续搬运，
- * 不再依赖OutputOffset跨过500~511的行尾填充，LTDC仍只显示前500像素。
+ * 两块512×26像素横向条带供准备任务与DMA任务乒乓使用。共享uint16_t
+ * 列数组的每个元素同时携带六路2 bit状态，只在每帧查询一次。
  */
 __attribute__((aligned(WAVE_DMA_CACHE_LINE_BYTES)))
 static uint16_t s_wave_dma_buffers[WAVE_DMA_BUFFER_COUNT]
@@ -628,6 +607,7 @@ static void wave_dma_send_task(void *parameter)
         if(job.first_in_frame) {
             frame_success = true;
         }
+        frame_success = frame_success && job.content_valid;
 
         if(job.measure_pixels != 0U) {
             cycle_start = platform_dwt_cycles();
@@ -686,6 +666,16 @@ static void wave_dma_send_task(void *parameter)
             s_dma_frame_success = frame_success;
             (void)xSemaphoreGive(s_wave_frame_done_semaphore);
         }
+#if WAVE_DMA_INTER_JOB_DELAY_MS > 0U
+        else {
+            /*
+             * DMA2D完成中断只负责唤醒本任务。下一笔不在ISR中立即启动，
+             * 而是在任务上下文让出一个RTOS节拍，让LTDC优先补足其FIFO。
+             * 条带任务仍属于同一帧，最后一笔完成后才请求VBlank换帧。
+             */
+            vTaskDelay(pdMS_TO_TICKS(WAVE_DMA_INTER_JOB_DELAY_MS));
+        }
+#endif
     }
 }
 
@@ -738,6 +728,9 @@ static void wave_dma_complete_isr(void *context, bool success)
  */
 static bool wave_sdram_dma_fill_test_is_active(void)
 {
+#if !WAVE_SDRAM_DMA_FILL_TEST_ENABLE
+    return false;
+#else
     bool active;
 
     taskENTER_CRITICAL();
@@ -746,6 +739,7 @@ static bool wave_sdram_dma_fill_test_is_active(void)
              (s_wave.captured_end_cnt == 0U);
     taskEXIT_CRITICAL();
     return active;
+#endif
 }
 
 /**
@@ -772,6 +766,7 @@ static bool wave_run_sdram_dma_fill_test(void)
     job.measure_pixels = pixel_count;
     job.first_in_frame = true;
     job.last_in_frame = true;
+    job.content_valid = true;
 
     if(xQueueSend(s_wave_ready_job_queue, &job, portMAX_DELAY) != pdPASS ||
        xSemaphoreTake(s_wave_frame_done_semaphore, portMAX_DELAY) != pdTRUE) {
@@ -825,7 +820,8 @@ static bool wave_make_frame_snapshot(uint32_t frame_tick,
         view_changed = true;
     }
 
-    should_render = s_wave.render_requested || view_changed;
+    should_render = s_wave.render_requested || view_changed ||
+                    s_wave.clear_frames_remaining != 0U;
     if(!should_render) {
         taskEXIT_CRITICAL();
         return false;
@@ -833,6 +829,7 @@ static bool wave_make_frame_snapshot(uint32_t frame_tick,
 
     s_wave.render_requested = false;
     snapshot->view = s_wave.view;
+    snapshot->clear_background = s_wave.clear_frames_remaining != 0U;
     for(channel_index = 0U; channel_index < WAVE_CHANNEL_COUNT; channel_index++) {
         const wave_channel_t *channel = &s_wave.channels[channel_index];
         wave_frame_channel_t *destination = &snapshot->channels[channel_index];
@@ -856,8 +853,6 @@ static bool wave_render_frame_at_tick(uint32_t frame_tick)
 {
     wave_frame_snapshot_t snapshot;
     uint16_t *pixels;
-    uint32_t valid_columns = 0U;
-    uint8_t start_levels = 0U;
 
     /* 换帧尚未完成时不准备数据，也不触碰正在等待锁存的后缓冲。 */
     pixels = bsp_ltdc_lcd_wave_layer_get_back_buffer();
@@ -865,28 +860,19 @@ static bool wave_render_frame_at_tick(uint32_t frame_tick)
         return false;
     }
 
-    if(!wave_capture_data_request_window(snapshot.view.start_cnt,
-                                          snapshot.view.now_cnt,
-                                          snapshot.view.window_size,
-                                          s_task_columns,
-                                          &valid_columns,
-                                          &start_levels)) {
+    if(!wave_queue_render_snapshot(pixels, &snapshot)) {
         taskENTER_CRITICAL();
         s_wave.render_requested = true;
         taskEXIT_CRITICAL();
         return false;
     }
 
-    if(valid_columns > WAVE_PACKED_COLUMN_COUNT) {
-        valid_columns = WAVE_PACKED_COLUMN_COUNT;
-    }
-
-    if(!wave_queue_render_snapshot(pixels, &snapshot, s_task_columns,
-                                   valid_columns, start_levels)) {
+    if(snapshot.clear_background) {
         taskENTER_CRITICAL();
-        s_wave.render_requested = true;
+        if(s_wave.clear_frames_remaining != 0U) {
+            s_wave.clear_frames_remaining--;
+        }
         taskEXIT_CRITICAL();
-        return false;
     }
 
     return true;
@@ -896,143 +882,165 @@ static bool wave_render_frame_at_tick(uint32_t frame_tick)
  * @brief wave_queue_render_snapshot：Layer 1 波形配置、绘制和帧提交。
  */
 static bool wave_queue_render_snapshot(uint16_t *pixels,
-                                       const wave_frame_snapshot_t *snapshot,
-                                       const uint16_t *columns,
-                                       uint32_t valid_columns,
-                                       uint8_t start_levels)
+                                       const wave_frame_snapshot_t *snapshot)
 {
     const uint32_t width = bsp_ltdc_lcd_wave_layer_get_width();
     const uint32_t height = bsp_ltdc_lcd_wave_layer_get_height();
     const uint32_t stride = bsp_ltdc_lcd_wave_layer_get_stride();
     wave_dma_job_t job = {0};
-    uint32_t tile_y;
+    uint32_t channel_index;
+    uint32_t last_enabled = WAVE_CHANNEL_COUNT;
+    uint32_t valid_columns = 0U;
+    uint8_t initial_levels = 0U;
+    bool content_valid = true;
+    bool first_channel_job = true;
 
-    if(pixels == NULL || snapshot == NULL || columns == NULL ||
-       width == 0U || width > WAVE_AREA_WIDTH || height == 0U ||
+    if(pixels == NULL || snapshot == NULL || width == 0U ||
+       width > WAVE_AREA_WIDTH || height == 0U ||
        stride != WAVE_DMA_TILE_STRIDE_PIXELS) {
         return false;
     }
 
-    /* 两块片内条带乒乓准备；整帧DMA完成后才提交VBlank换帧。 */
-    for(tile_y = 0U; tile_y < height; tile_y += WAVE_DMA_TILE_LINES) {
-        const uint32_t remaining_lines = height - tile_y;
-        const uint32_t tile_height =
-            (remaining_lines > WAVE_DMA_TILE_LINES) ?
-            WAVE_DMA_TILE_LINES : remaining_lines;
+    for(channel_index = 0U; channel_index < WAVE_CHANNEL_COUNT; channel_index++) {
+        if(snapshot->channels[channel_index].enabled) last_enabled = channel_index;
+    }
+    if(last_enabled == WAVE_CHANNEL_COUNT) return false;
+
+    /* 固定一次采集快照，六路通道都从相同的s_tick/e_tick窗口取得。 */
+    if(!wave_capture_data_request_window(snapshot->view.start_cnt,
+                                         snapshot->view.now_cnt,
+                                         snapshot->view.window_size,
+                                         s_task_columns,
+                                         &valid_columns,
+                                         &initial_levels)) {
+        return false;
+    }
+    if(valid_columns > WAVE_AREA_WIDTH) valid_columns = WAVE_AREA_WIDTH;
+
+    /*
+     * 通道布局改变时清空当前后缓冲。这里不能再用一次444行的DMA2D填充：
+     * 即使普通波形按26行切片，该整块任务仍会连续占用SDRAM总线，足以让
+     * 同时扫描Layer 0和Layer 1的LTDC发生FIFO欠载。后缓冲此刻不被LTDC
+     * 扫描，CPU清零安全且仅在修改通道配置时发生。
+     */
+    if(snapshot->clear_background) {
+        memset(pixels, 0, stride * height * sizeof(pixels[0]));
+        __DSB();
+    }
+
+    for(channel_index = 0U; channel_index <= last_enabled; channel_index++) {
+        const wave_frame_channel_t *channel = &snapshot->channels[channel_index];
+        uint32_t tile_y;
+        uint32_t tile_height;
         uint8_t buffer_index;
         uint16_t *tile_buffer;
-        uint32_t transfer_y;
 
-        /* 只有DMA归还编号后CPU才能重用该缓冲。 */
+        if(!channel->enabled) continue;
+
+        /*
+         * 每路只发送高、低电平之间的一块横向条带。800x480布局中两条电平线
+         * 相差25像素，所以包含首尾两行后恰好为26行。
+         */
+        if(channel->high_y <= channel->low_y) {
+            tile_y = (uint32_t)(channel->high_y - WAVE_TIME_RULER_HEIGHT);
+            tile_height = (uint32_t)(channel->low_y - channel->high_y) + 1U;
+        }
+        else {
+            tile_y = (uint32_t)(channel->low_y - WAVE_TIME_RULER_HEIGHT);
+            tile_height = (uint32_t)(channel->high_y - channel->low_y) + 1U;
+        }
+        if(tile_height != WAVE_DMA_TILE_LINES ||
+           tile_y >= height || tile_y + tile_height > height) {
+            content_valid = false;
+            tile_y = 0U;
+            tile_height = (height < WAVE_DMA_TILE_LINES) ?
+                height : WAVE_DMA_TILE_LINES;
+        }
+
         if(xQueueReceive(s_wave_free_buffer_queue,
                          &buffer_index, portMAX_DELAY) != pdPASS) {
             return false;
         }
         tile_buffer = s_wave_dma_buffers[buffer_index];
-
         memset(tile_buffer, 0,
                stride * tile_height * sizeof(tile_buffer[0]));
-        wave_render_tile(tile_buffer, tile_y, tile_height, stride,
-                         snapshot, columns, valid_columns, start_levels);
-
-        /*
-         * 每个通道槽位正好是74行，一块准备条带由一笔DMA2D完整搬运，
-         * 避免把同一路波形拆成多个传输片段。
-         */
-        for(transfer_y = 0U; transfer_y < tile_height;
-            transfer_y += WAVE_DMA_TRANSFER_LINES) {
-            const uint32_t remaining_transfer_lines = tile_height - transfer_y;
-            const uint32_t transfer_height =
-                (remaining_transfer_lines > WAVE_DMA_TRANSFER_LINES) ?
-                WAVE_DMA_TRANSFER_LINES : remaining_transfer_lines;
-
-            job.type = WAVE_DMA_JOB_COPY;
-            job.buffer_index = buffer_index;
-            /* 源和目标统一使用512像素物理行宽，OutputOffset固定为0。 */
-            job.width = (uint16_t)stride;
-            job.height = (uint16_t)transfer_height;
-            job.destination_stride = (uint16_t)stride;
-            job.source = &tile_buffer[transfer_y * stride];
-            job.destination = &pixels[(tile_y + transfer_y) * stride];
-            job.first_in_frame = (tile_y == 0U && transfer_y == 0U);
-            job.last_in_frame =
-                ((tile_y + transfer_y + transfer_height) >= height);
-            job.release_buffer =
-                ((transfer_y + transfer_height) >= tile_height);
-            if(xQueueSend(s_wave_ready_job_queue, &job,
-                          portMAX_DELAY) != pdPASS) {
-                return false;
-            }
+        if(content_valid) {
+            wave_render_channel_tile(tile_buffer, tile_y, tile_height, stride,
+                                     channel, s_task_columns,
+                                     valid_columns, initial_levels);
         }
+
+        job.type = WAVE_DMA_JOB_COPY;
+        job.buffer_index = buffer_index;
+        job.width = (uint16_t)stride;
+        job.height = (uint16_t)tile_height;
+        job.destination_stride = (uint16_t)stride;
+        job.source = tile_buffer;
+        job.destination = &pixels[tile_y * stride];
+        job.first_in_frame = first_channel_job;
+        job.last_in_frame = channel_index == last_enabled;
+        job.release_buffer = true;
+        job.content_valid = content_valid;
+        if(xQueueSend(s_wave_ready_job_queue, &job,
+                      portMAX_DELAY) != pdPASS) return false;
+        first_channel_job = false;
     }
 
-    /* 全部444行完成并提交VBlank换帧后，才允许准备任务处理下一帧。 */
+    /* 最后一个开启通道的26行DMA完成并提交VBlank后，才准备下一帧。 */
     if(xSemaphoreTake(s_wave_frame_done_semaphore, portMAX_DELAY) != pdTRUE) {
         return false;
     }
-    return s_dma_frame_success;
+    return s_dma_frame_success && content_valid;
 }
 
 /**
- * @brief wave_render_tile：Layer 1 波形配置、绘制和帧提交。
+ * @brief 把一路500列状态绘制到当前26行横向RGB565条带。
  */
-static void wave_render_tile(uint16_t *tile_pixels,
-                             uint32_t tile_y,
-                             uint32_t tile_height,
-                             uint32_t tile_width,
-                             const wave_frame_snapshot_t *snapshot,
-                             const uint16_t *columns,
-                             uint32_t valid_columns,
-                             uint8_t start_levels)
+static void wave_render_channel_tile(uint16_t *tile_pixels,
+                                     uint32_t tile_y,
+                                     uint32_t tile_height,
+                                     uint32_t tile_width,
+                                     const wave_frame_channel_t *channel,
+                                     const uint16_t *columns,
+                                     uint32_t valid_columns,
+                                     uint8_t initial_levels)
 {
-    const int32_t tile_top = (int32_t)tile_y;
-    const int32_t tile_bottom = tile_top + (int32_t)tile_height - 1;
-    uint32_t channel_index;
+    const int32_t high_y = channel->high_y - WAVE_TIME_RULER_HEIGHT;
+    const int32_t low_y = channel->low_y - WAVE_TIME_RULER_HEIGHT;
+    const int32_t tile_bottom = (int32_t)(tile_y + tile_height - 1U);
+    const uint16_t color = wave_color_to_rgb565(channel->color);
+    const uint32_t bit_shift = (uint32_t)channel->source_id * 2U;
+    bool level = ((initial_levels >> channel->source_id) & 0x01U) != 0U;
+    uint32_t x;
 
-    for(channel_index = 0U; channel_index < WAVE_CHANNEL_COUNT; channel_index++) {
-        const wave_frame_channel_t *channel = &snapshot->channels[channel_index];
-        const int32_t high_y = channel->high_y - WAVE_TIME_RULER_HEIGHT;
-        const int32_t low_y = channel->low_y - WAVE_TIME_RULER_HEIGHT;
-        const int32_t channel_top = high_y < low_y ? high_y : low_y;
-        const int32_t channel_bottom = high_y > low_y ? high_y : low_y;
-        const uint16_t color = wave_color_to_rgb565(channel->color);
-        bool level;
-        uint32_t column_index;
+    for(x = 0U; x < valid_columns; x++) {
+        const uint8_t code = (uint8_t)((columns[x] >> bit_shift) & 0x03U);
+        const int32_t level_y = level ? high_y : low_y;
 
-        if(!channel->enabled ||
-           channel->source_id != WAVE_SIMULATED_CHANNEL_INDEX ||
-           channel_bottom < tile_top || channel_top > tile_bottom) {
-            continue;
+        if(level_y >= (int32_t)tile_y && level_y <= tile_bottom) {
+            tile_pixels[(uint32_t)(level_y - (int32_t)tile_y) * tile_width + x] = color;
         }
+        if(code == 0x01U || code == 0x02U) {
+            const bool after = code == 0x02U;
+            int32_t y1;
+            int32_t y2;
+            int32_t y;
 
-        /* 每个相交条带从同一帧的初始电平重放列编码，不重新读取采集数据。 */
-        level = ((start_levels >> channel->source_id) & 0x01U) != 0U;
-        for(column_index = 0U; column_index < valid_columns; column_index++) {
-            const uint16_t column_word = columns[column_index];
-            const uint8_t code = (uint8_t)((column_word >>
-                                  (channel->source_id * 2U)) & 0x03U);
-            const int32_t x = WAVE_AREA_X + (int32_t)column_index;
-            const int32_t level_y = level ? channel->high_y : channel->low_y;
-
-            wave_draw_tile_horizontal(tile_pixels, tile_y, tile_height,
-                                      tile_width, x, x, level_y, color);
-            if(code == 0x01U || code == 0x02U) {
-                const bool level_after = (code == 0x02U);
-                const int32_t after_y = level_after ? channel->high_y : channel->low_y;
-
-                if(level_after == level) {
-                    wave_draw_tile_vertical(tile_pixels, tile_y, tile_height,
-                                            tile_width, x,
-                                            channel->high_y, channel->low_y,
-                                            color);
-                }
-                else {
-                    wave_draw_tile_vertical(tile_pixels, tile_y, tile_height,
-                                            tile_width, x, level_y, after_y,
-                                            color);
-                }
-                level = level_after;
+            if(after == level) {
+                y1 = high_y < low_y ? high_y : low_y;
+                y2 = high_y > low_y ? high_y : low_y;
             }
+            else {
+                const int32_t after_y = after ? high_y : low_y;
+                y1 = level_y < after_y ? level_y : after_y;
+                y2 = level_y > after_y ? level_y : after_y;
+            }
+            if(y1 < (int32_t)tile_y) y1 = (int32_t)tile_y;
+            if(y2 > tile_bottom) y2 = tile_bottom;
+            for(y = y1; y <= y2; y++) {
+                tile_pixels[(uint32_t)(y - (int32_t)tile_y) * tile_width + x] = color;
+            }
+            level = after;
         }
     }
 }
@@ -1198,6 +1206,7 @@ bool wave_apply_configuration(void)
 {
     uint32_t channel_index;
     uint32_t display_slot = 0U;
+    bool had_configuration;
 
     if(s_wave.state != WAVE_STATE_CONFIGURED || s_wave.parent == NULL) {
         return false;
@@ -1210,7 +1219,8 @@ bool wave_apply_configuration(void)
         }
     }
 
-    /* 配置只在停止状态提交；只清理 LVGL 控件，绝不清空已申请的波形数据。 */
+    /* 配置只在停止状态提交；只清理 LVGL 控件，绝不清空已申请的采集数据。 */
+    had_configuration = s_wave.configuration_applied;
     s_wave.configuration_applied = false;
     lv_obj_clean(s_wave.left_root);
     lv_obj_clean(s_wave.wave_root);
@@ -1238,6 +1248,10 @@ bool wave_apply_configuration(void)
     }
 
     s_wave.configuration_applied = true;
+    if(had_configuration) {
+        /* 两个后续帧分别清理当前前、后波形缓冲，防止关闭通道后残留。 */
+        s_wave.clear_frames_remaining = 2U;
+    }
 
     /* Layer 1 由独立波形任务在下一次帧信号到来时重建。 */
     s_wave.render_requested = true;
@@ -1274,13 +1288,15 @@ bool wave_start_capture(uint32_t timer_start_cnt)
         lv_obj_invalidate(s_wave.time_ruler);
     }
 
-    wave_capture_data_begin(s_wave.capture_duration_cnt);
+    if(!wave_capture_data_begin(s_wave.capture_duration_cnt)) {
+        return false;
+    }
     s_wave.last_live_range_end_cnt = 0U;
     s_wave.state = WAVE_STATE_CAPTURING;
-    /* 新一轮的第一帧由波形任务清空并重建，避免上一轮画面残留。 */
+    /* 新一轮第一帧会用各通道完整26行条带覆盖上一轮对应波形。 */
     s_wave.render_requested = true;
 
-    /* 开始新一轮采集时只刷新一次空白波形背景，左侧配置无需重画。 */
+    /* 开始新一轮采集时只请求波形重建，左侧配置无需重画。 */
     lv_obj_invalidate(s_wave.wave_root);
     return true;
 }
@@ -1833,86 +1849,6 @@ static uint16_t wave_color_to_rgb565(uint32_t color)
     return (uint16_t)(((color & 0x00F80000UL) >> 8U) |
                       ((color & 0x0000FC00UL) >> 5U) |
                       ((color & 0x000000F8UL) >> 3U));
-}
-
-/**
- * @brief wave_draw_tile_horizontal：Layer 1 波形配置、绘制和帧提交。
- */
-static void wave_draw_tile_horizontal(uint16_t *tile_pixels,
-                                      uint32_t tile_y,
-                                      uint32_t tile_height,
-                                      uint32_t tile_width,
-                                      int32_t x1,
-                                      int32_t x2,
-                                      int32_t y,
-                                      uint16_t color)
-{
-    const int32_t width = (int32_t)tile_width;
-    const int32_t local_y = y - WAVE_TIME_RULER_HEIGHT;
-    const int32_t tile_local_y = local_y - (int32_t)tile_y;
-    int32_t local_x1 = x1 - WAVE_AREA_X;
-    int32_t local_x2 = x2 - WAVE_AREA_X;
-    int32_t local_x;
-
-    if(tile_pixels == NULL || tile_local_y < 0 ||
-       tile_local_y >= (int32_t)tile_height) {
-        return;
-    }
-    if(local_x1 > local_x2) {
-        const int32_t temp = local_x1;
-        local_x1 = local_x2;
-        local_x2 = temp;
-    }
-    if(local_x2 < 0 || local_x1 >= width) {
-        return;
-    }
-    if(local_x1 < 0) local_x1 = 0;
-    if(local_x2 >= width) local_x2 = width - 1;
-
-    for(local_x = local_x1; local_x <= local_x2; local_x++) {
-        tile_pixels[(uint32_t)tile_local_y * tile_width +
-                    (uint32_t)local_x] = color;
-    }
-}
-
-/**
- * @brief wave_draw_tile_vertical：Layer 1 波形配置、绘制和帧提交。
- */
-static void wave_draw_tile_vertical(uint16_t *tile_pixels,
-                                    uint32_t tile_y,
-                                    uint32_t tile_height,
-                                    uint32_t tile_width,
-                                    int32_t x,
-                                    int32_t y1,
-                                    int32_t y2,
-                                    uint16_t color)
-{
-    const int32_t width = (int32_t)tile_width;
-    const int32_t tile_top = (int32_t)tile_y;
-    const int32_t tile_bottom = tile_top + (int32_t)tile_height - 1;
-    int32_t local_x = x - WAVE_AREA_X;
-    int32_t local_y1 = y1 - WAVE_TIME_RULER_HEIGHT;
-    int32_t local_y2 = y2 - WAVE_TIME_RULER_HEIGHT;
-    int32_t local_y;
-
-    if(tile_pixels == NULL || local_x < 0 || local_x >= width) {
-        return;
-    }
-    if(local_y1 > local_y2) {
-        const int32_t temp = local_y1;
-        local_y1 = local_y2;
-        local_y2 = temp;
-    }
-    if(local_y2 < tile_top || local_y1 > tile_bottom) {
-        return;
-    }
-    if(local_y1 < tile_top) local_y1 = tile_top;
-    if(local_y2 > tile_bottom) local_y2 = tile_bottom;
-
-    for(local_y = local_y1; local_y <= local_y2; local_y++) {
-        tile_pixels[(uint32_t)(local_y - tile_top) * tile_width +
-                    (uint32_t)local_x] = color;
-    }
 }
 
 /**

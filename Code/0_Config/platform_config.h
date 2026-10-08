@@ -13,6 +13,5 @@
  * 采集移植隔离开关：0时完全不初始化DMA1、MDMA、TIM1/TIM2/TIM5，
  * 不创建LA Service任务；GUI波形显示继续使用CNT Demo数据源。
  */
-#define PLATFORM_LA_CAPTURE_ENABLE 0U
-
+#define PLATFORM_LA_CAPTURE_ENABLE 1U
 #endif /* PLATFORM_CONFIG_H */
