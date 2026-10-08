@@ -1,0 +1,101 @@
+; STM32H743IIT6 scatter layout shared with the LA project.
+; USART1 TX DMA uses the shared DMA_NOCACHE section in D2 SRAM1.
+; Execution regions are link-time placement only. MPU/cache attributes must agree
+; before any DMA/MDMA/LTDC data is placed in these regions.
+;
+; D2 SRAM1/2/3 may contain startup-initialized RW/ZI data. The Keil target must
+; define DATA_IN_D2_SRAM so SystemInit enables their clocks before __main.
+; UNINIT areas are not cleared by __main: owners initialize before first read.
+; SDRAM sections are inaccessible until FMC/device startup publishes the window.
+; Keil suppresses L6314W only: unused optional selectors are expected until
+; LA/protocol/platform modules are linked. Other linker warnings remain enabled.
+
+LR_FLASH 0x08000000 0x00200000
+{
+    ER_FLASH 0x08000000 0x00200000
+    {
+        *.o (RESET, +First)
+        *(InRoot$$Sections)
+        .ANY (+RO)
+        .ANY (+XO)
+    }
+
+    ER_ITCM 0x00000000 0x00010000
+    {
+        * (ITCM_CODE)
+    }
+
+    RW_DTCM 0x20000000 0x00020000
+    {
+        * (STACK)
+        * (HEAP)
+        * (.bss.DTCM_DATA)
+        * (.data.DTCM_DATA)
+        * (DTCM_DATA)
+    }
+
+    RW_DMA_NOCACHE 0x30000000 UNINIT 0x00008000
+    {
+        * (.bss.DMA_NOCACHE)
+        * (DMA_NOCACHE)
+    }
+
+    RW_SRAM1 0x30008000 0x00018000
+    {
+        * (.bss.SRAM1_DATA)
+        * (.data.SRAM1_DATA)
+        * (SRAM1_DATA)
+    }
+
+    RW_SRAM2 0x30020000 0x00020000
+    {
+        * (.bss.SRAM2_DATA)
+        * (.data.SRAM2_DATA)
+        * (SRAM2_DATA)
+    }
+
+    RW_SRAM3 0x30040000 0x00008000
+    {
+        * (.bss.SRAM3_DATA)
+        * (.data.SRAM3_DATA)
+        * (SRAM3_DATA)
+    }
+
+    RW_SRAM4_NOINIT 0x38000000 UNINIT 0x00001000
+    {
+        * (.bss.SRAM4_NOINIT)
+        * (SRAM4_NOINIT)
+    }
+
+    RW_SRAM4 0x38001000 0x0000F000
+    {
+        * (.bss.SRAM4_DATA)
+        * (.data.SRAM4_DATA)
+        * (SRAM4_DATA)
+    }
+
+    RW_SDRAM_UI 0xC0000000 UNINIT 0x00800000
+    {
+        * (.bss.UI_DATA)
+        * (UI_DATA)
+    }
+
+    RW_SDRAM_PROTOCOL 0xC0800000 UNINIT 0x00200000
+    {
+        * (.bss.PROTOCOL_DATA)
+        * (PROTOCOL_DATA)
+    }
+
+    RW_SDRAM_LA 0xC0A00000 UNINIT 0x01600000
+    {
+        * (.bss.LA_DATA)
+        * (LA_DATA)
+    }
+
+    RW_AXI_SRAM 0x24000000 0x00080000
+    {
+        * (.bss.AXI_SRAM_DATA)
+        * (.data.AXI_SRAM_DATA)
+        .ANY (+RW +ZI)
+    }
+}

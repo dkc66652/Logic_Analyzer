@@ -1,0 +1,25 @@
+# Keil generated build products and local IDE state
+MDK-ARM/GUI/
+MDK-ARM/DebugConfig/
+MDK-ARM/*.log
+MDK-ARM/GUI.uvguix.*
+MDK-ARM/GUI.uvoptx
+MDK-ARM/*.bak
+MDK-ARM/*.bak-*
+*.axf
+*.hex
+*.map
+*.o
+*.d
+*.crf
+*.dep
+*.lst
+
+# Local recovery copies are redundant once committed
+Backup/
+
+# Archived source snapshots are retained outside Git history
+Docs/*.zip
+
+# CMSIS-DSP ships upstream examples/tests and is not used by this GUI target
+Drivers/CMSIS/DSP/
